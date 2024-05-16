@@ -1,30 +1,40 @@
 #!/bin/bash
 
-# Enter the API Username, API Password and JSS URL here
-apiuser="apiuser" # create a user for read only (Active Directory or local on Jamf Server)
-apipass="apipass" # password for the api-read-only
-jssURL="https://jssURL.jamfcloud.com:443"
+# Variables
+apiuser="svc_computernavn"
+apipass="Next2021APIpassword"
+jssURL="https://esis.jamfcloud.com:443"
 
-# Get the Mac's UUID string
+# Get the authentication token
+token=$(curl -sku $apiuser:$apipass -X POST "$jssURL/api/v1/auth/token" | awk -F'"' '/token/{print $4}')
+
+# Get the UUID of the computer
 UUID=$(ioreg -rd1 -c IOPlatformExpertDevice | awk -F'"' '/IOPlatformUUID/{print $4}')
 
-# Make first a "Inventory Preload" with Asset Tag (Settings > Global Management)
-# Pull the Asset Tag by accessing the computer records "general" subsection
-Asset_Tag=$(curl -H "Accept: text/xml" -sfku "${apiuser}:${apipass}" "${jssURL}/JSSResource/computers/udid/${UUID}/subset/general" | xmllint --format - 2>/dev/null | awk -F'>|<' '/<asset_tag>/{print $3}')
+# Fetch the XML response from Jamf Pro API
+response=$(curl -s -H "Accept: text/xml" -H "Authorization: Bearer $token" "${jssURL}/JSSResource/computers/udid/${UUID}/subset/general")
 
-echo "$Asset_Tag"
+# Parse the XML response to extract the asset_tag value
+asset_tag=$(echo "$response" | xmllint --xpath 'string(//computer/general/asset_tag)' -)
 
-scutil --set ComputerName "$Asset_Tag"
-scutil --set HostName "$Asset_Tag"
-scutil --set LocalHostName "$Asset_Tag"
+# Check if asset_tag is not empty
+if [ -n "$asset_tag" ]; then
+  # Set the computer name, host name, and local host name
+  scutil --set ComputerName "$asset_tag"
+  scutil --set HostName "$asset_tag"
+  scutil --set LocalHostName "$asset_tag"
+  
+  echo "Asset Tag: $asset_tag"
+  echo "ComputerName, HostName, and LocalHostName have been set to $asset_tag"
+  
+  # Flush the DNS cache
+  dscacheutil -flushcache
+  
+  # Trigger Jamf policy to update inventory
+  /usr/local/jamf/bin/jamf policy -trigger update-inventory
+else
+  echo "Asset Tag not found in the response."
+fi
 
-# Make first a policy with a trigger for update-inventory
-# Computers > Policies > General > General (Display Name: Update Inventory)
-# Computers > Policies > General > Trigger (Custom Event: update-inventory)
-# Computers > Policies > Maintenance > Update inventory
-
-dscacheutil -flushcache
-
-/usr/local/jamf/bin/jamf policy -trigger update-inventory
-
+# Exit the script
 exit 0
