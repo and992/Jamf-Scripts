@@ -36,5 +36,8 @@ else
   echo "Asset Tag not found in the response."
 fi
 
+# Invalidate the authentication token
+curl -sku $apiuser:$apipass -X POST "$jssURL/api/v1/auth/invalidate-token" -H "Authorization: Bearer $token"
+
 # Exit the script
 exit 0
