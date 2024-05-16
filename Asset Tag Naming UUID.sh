@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # Variables
-apiuser="svc_computernavn"
-apipass="Next2021APIpassword"
-jssURL="https://esis.jamfcloud.com:443"
+apiuser="apiuser"
+apipass="apipass"
+jssURL="https://jssURL.jamfcloud.com:443"
 
 # Get the authentication token
 token=$(curl -sku $apiuser:$apipass -X POST "$jssURL/api/v1/auth/token" | awk -F'"' '/token/{print $4}')
