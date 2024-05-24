@@ -1,43 +1,63 @@
 #!/bin/bash
 
-# Variables
-apiuser="apiuser"
-apipass="apipass"
-jssURL="https://jssURL.jamfcloud.com:443"
+#The API user need "Read Computers" permision
 
-# Get the authentication token
-token=$(curl -sku $apiuser:$apipass -X POST "$jssURL/api/v1/auth/token" | awk -F'"' '/token/{print $4}')
+# Define the Jamf Pro Server URL
+jssURL=https://jssURL.jamfcloud.com:443
 
-# Get the UUID of the computer
+# Define the client ID and client secret
+client_id=ID
+client_secret=secret
+
+# Obtain OAuth Access Token
+access_token_full=$(curl --location --request POST "$jssURL/api/oauth/token" \
+--header 'Content-Type: application/x-www-form-urlencoded' \
+--data-urlencode "client_id=$client_id" \
+--data-urlencode 'grant_type=client_credentials' \
+--data-urlencode "client_secret=$client_secret")
+
+# Extract the access token from the response
+access_token=$(echo "$access_token_full" | awk -F'"' '{print $4}')
+echo "Access token: $access_token"
+
+# Retrieve the UUID of the Computer
 UUID=$(ioreg -rd1 -c IOPlatformExpertDevice | awk -F'"' '/IOPlatformUUID/{print $4}')
+echo "UUID: $UUID"
 
-# Fetch the XML response from Jamf Pro API
-response=$(curl -s -H "Accept: text/xml" -H "Authorization: Bearer $token" "${jssURL}/JSSResource/computers/udid/${UUID}/subset/general")
+# Fetch Computer Details from Jamf Pro
+response=$(curl -s -H "Accept: text/xml" -H "Authorization: Bearer $access_token" "${jssURL}/JSSResource/computers/udid/${UUID}/subset/general")
 
-# Parse the XML response to extract the asset_tag value
+# Extract Asset Tag from the response
 asset_tag=$(echo "$response" | xmllint --xpath 'string(//computer/general/asset_tag)' -)
 
-# Check if asset_tag is not empty
-if [ -n "$asset_tag" ]; then
-  # Set the computer name, host name, and local host name
+# If asset_tag is empty, fetch the serial number
+if [ -z "$asset_tag" ]; then
+  serial_number=$(system_profiler SPHardwareDataType | grep "Serial Number" | awk -F ": " '{print $2}')
+  echo "Asset Tag not found, using Serial Number: $serial_number"
+  
+  # Set the computer name, host name, and local host name to serial number
+  scutil --set ComputerName "$serial_number"
+  scutil --set HostName "$serial_number"
+  scutil --set LocalHostName "$serial_number"
+  
+  echo "ComputerName, HostName, and LocalHostName have been set to Serial Number: $serial_number"
+else
+  # Set the computer name, host name, and local host name to asset tag
   scutil --set ComputerName "$asset_tag"
   scutil --set HostName "$asset_tag"
   scutil --set LocalHostName "$asset_tag"
   
   echo "Asset Tag: $asset_tag"
   echo "ComputerName, HostName, and LocalHostName have been set to $asset_tag"
-  
-  # Flush the DNS cache
-  dscacheutil -flushcache
-  
-  # Trigger Jamf policy to update inventory
-  /usr/local/jamf/bin/jamf policy -trigger update-inventory
-else
-  echo "Asset Tag not found in the response."
 fi
 
-# Invalidate the authentication token
-curl -sku $apiuser:$apipass -X POST "$jssURL/api/v1/auth/invalidate-token" -H "Authorization: Bearer $token"
+# Flush the DNS cache
+dscacheutil -flushcache
 
-# Exit the script
-exit 0
+# Trigger Jamf policy to update inventory
+/usr/local/jamf/bin/jamf policy -trigger update-inventory
+
+# Invalidate the OAuth Token
+invalidate_response=$(curl --location --request POST "$jssURL/api/oauth/invalidate" \
+--header "Authorization: Bearer $access_token")
+echo "Invalidate response: $invalidate_response"
