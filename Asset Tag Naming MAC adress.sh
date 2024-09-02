@@ -1,5 +1,7 @@
 #!/bin/bash
 
+#Dont work anymore, Legacy script.
+
 # Enter the API Username, API Password and JSS URL here
 apiuser="apiuser"
 apipass="apipass"
